@@ -770,10 +770,15 @@ namespace lgfx
       {
         bool hit = true;
         if (id_mask) {
-          hit = (id_value == (_read_panel_id(bus, pin_cs, id_cmd) & id_mask));
+          uint32_t panel_id = _read_panel_id(bus, pin_cs, id_cmd);
+          ESP_LOGI(LIBRARY_NAME, "[Autodetect] _read_panel_id(bus, pin_cs:%d, id_cmd:0x%02x) : 0x%08x = : 0x%08x", pin_cs, id_cmd, panel_id ,id_value);
+          hit = (id_value == (panel_id & id_mask));
+
           if (hit && id_value == 0 && id_cmd == 0x04)
           {
-            hit = (0 != (_read_panel_id(bus, pin_cs, 0x09) & 0xFFFFFF));
+            uint32_t panel_id2 = _read_panel_id(bus, pin_cs, 0x09);
+            ESP_LOGI(LIBRARY_NAME, "[Autodetect] _read_panel_id(bus, pin_cs:%d, id_cmd:0x09) : 0x%08x : : 0x%08x", pin_cs, panel_id2 ,id_value);
+            hit = (0 != (panel_id2 & 0xFFFFFF));
           }
         }
         return hit;
@@ -3397,6 +3402,31 @@ namespace lgfx
         , HSPI_HOST       // SPI HOST
         } {}
 
+        bool judgement(IBus* bus, int pin_cs_) const override
+        {
+          ESP_LOGI(LIBRARY_NAME, "[Autodetect] JC2432W328C IIC Touch Check (CST816S[IIC:33,32,25])");
+          // タッチパネルの有無をチェックする;
+          _pin_backup_t backup[] = { GPIO_NUM_33, GPIO_NUM_32 };
+          lgfx::i2c::init(I2C_NUM_1, GPIO_NUM_33, GPIO_NUM_32);
+
+          auto res = lgfx::i2c::readRegister8(I2C_NUM_1, 0x15, 0xA7, 400000);
+          ESP_LOGI(LIBRARY_NAME, "readRegister8 has_value=%d value=0x%02X", res.has_value(), res.value_or(0));
+ 
+          // I2C通信でタッチパネルコントローラが存在するかチェックする
+          if ( res.has_value() && res.value() == 0xB7)
+          { /// CST816S Panel ID reg=0xA7  value=0xB7
+            return true;
+          }
+
+          lgfx::i2c::release(I2C_NUM_1);
+          for (auto &b : backup)
+          {
+            b.restore();
+          }
+ 
+          return false;
+        }
+
         void setup(_detector_result_t* result) const override
         {
           ESP_LOGI(LIBRARY_NAME, "[Autodetect] Guition_JC2432W328C (ST7789[SPI:12,13,14,15]+CST816S[IIC:33,32,25])");
@@ -3422,6 +3452,92 @@ namespace lgfx
               cfg.freq = 400000;
               cfg.x_max = 240;
               cfg.y_max = 320;
+              t->config(cfg);
+              p->touch(t);
+          }
+        }
+      };
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+      struct _detector_Sunton_3248S035C_t : public _detector_Sunton_ESP32_2432S028_t
+      {
+        constexpr _detector_Sunton_3248S035C_t(void)
+        : _detector_Sunton_ESP32_2432S028_t
+        { board_t::board_Sunton_ESP32_3248S035C
+        , 0x04, 0xFFFF00, 0x000000 // ST7789
+        , 55000000, 20000000
+        , GPIO_NUM_13     // MOSI
+        , GPIO_NUM_12     // MISO
+        , GPIO_NUM_14     // SCLK
+        , GPIO_NUM_2      // DC
+        , GPIO_NUM_15     // CS
+        , (gpio_num_t)-1  // RST
+        , (gpio_num_t)-1  // TF CARD CS
+        , 0               // SPI MODE
+        , false           // SPI 3wire
+        , HSPI_HOST       // SPI HOST
+        } {}
+
+        bool judgement(IBus* bus, int pin_cs_) const override
+        {
+          auto ret = _detector_t::judgement(bus, pin_cs_);
+    
+          ESP_LOGI(LIBRARY_NAME, "[Autodetect] 3248S035C IIC Touch Check (Touch_GT911[IIC:33,32,36])");
+          // タッチパネルの有無をチェックする;
+          _pin_backup_t backup[] = { GPIO_NUM_33, GPIO_NUM_32 };
+          lgfx::i2c::init(I2C_NUM_1, GPIO_NUM_33, GPIO_NUM_32);
+
+
+
+
+          auto res = lgfx::i2c::readRegister16(I2C_NUM_1, 0x5D, 0x804A, 400000);
+          if (res.has_value())
+          {
+            ESP_LOGI(LIBRARY_NAME, "readRegister16 success value=0x%02X", res.value());
+          }
+          else
+          {
+            ESP_LOGI(LIBRARY_NAME, "readRegister16 failed");
+          }
+ 
+          lgfx::i2c::release(I2C_NUM_1);
+          for (auto &b : backup)
+          {
+            b.restore();
+          }
+         // I2C通信でタッチパネルコントローラが存在するかチェックする
+          if ( res.has_value() && res.value() == 0xE0 )
+          { /// CST816S Panel ID reg=0xA7  value=0xB7
+            return true;
+          }
+          return false;
+        }
+
+        void setup(_detector_result_t* result) const override
+        {
+          ESP_LOGI(LIBRARY_NAME, "[Autodetect] Sunton_3248S035C (ST7796[SPI:12,13,14,15]+GT911[IIC:33,32,25])");
+
+          result->panel = new Panel_ST7796();
+          auto p = result->panel;
+          {
+            auto cfg = p->config();
+            cfg.bus_shared = true;
+            p->config(cfg);
+
+            p->light(_create_pwm_backlight(GPIO_NUM_27, 7));
+          }
+          {
+              auto t = new lgfx::Touch_GT911();
+
+              auto cfg = t->config();
+              cfg.i2c_port = I2C_NUM_0;
+              cfg.pin_sda = GPIO_NUM_33;
+              cfg.pin_scl = GPIO_NUM_32;
+              cfg.pin_rst = GPIO_NUM_36;
+              cfg.pin_int = -1;
+              cfg.freq = 400000;
+              cfg.x_max = 320;
+              cfg.y_max = 480;
               t->config(cfg);
               p->touch(t);
           }
@@ -3672,6 +3788,7 @@ namespace lgfx
       static constexpr const _detector_Guition_JC2432W328R_t   detector_Guition_JC2432W328R;
       static constexpr const _detector_Sunton_2432S028_9341_t  detector_Sunton_2432S028_9341;
       static constexpr const _detector_Sunton_2432S028_7789_t  detector_Sunton_2432S028_7789;
+      static constexpr const _detector_Sunton_3248S035C_t   detector_Sunton_3248S035C;
       static constexpr const _detector_ESP32_ESP32E_t     detector_ESP32_ESP32E;
       static constexpr const _detector_ODROID_GO_t             detector_ODROID_GO;
       static constexpr const _detector_WT32_SC01_t             detector_WT32_SC01;
@@ -3721,14 +3838,15 @@ namespace lgfx
         &detector_ESP_WROVER_KIT_9341,
 #endif
 #if defined ( LGFX_AUTODETECT ) || defined ( LGFX_ESP32_2432S028 ) || defined ( LGFX_SUNTON_ESP32_2432S028 )
+        &detector_Sunton_3248S035C, //0x04 0xFFFF 0xb38100 ST7796[SPI:12,13,14,15]+CST816S[IIC:33,32,36] TESTED 2025/12/8 tac-lab.tech  
         &detector_Sunton_2432S028_7789, //0x04 0xFF 0x81 ST7789[SPI:12,13,14,15]      +XPT2046[SPI:32,39,25,33] 
         &detector_Sunton_2432S028_9341, //0x04 0xFF 0x00 ILI9341[SPI:12,13,14,15]     +XPT2046[SPI:32,39,25,33] TESTED 2025/9/30 tac-lab.tech
 #endif
 //0xb38100 系のLCDドライバ
 #if defined(LGFX_AUTODETECT) || defined(LGFX_ESP32_2432W328) || defined(LGFX_GUITION_ESP32_2432W328)
-        &detector_Guition_JC2432W328R,  //0x04 0xFFFF 0xb38100 ST7789[SPI:12,13,14,15]+XPT2046[SPI:12,13,14,33] TESTED 2025/9/30 tac-lab.tech
+        //IICで接続チェック
         &detector_ESP32_ESP32E,         //0x04 0xFFFF 0xb38100 ST7789[SPI:12,13,14,15]+XPT2046[SPI:32,39,25,33] TESTED 2025/9/30 tac-lab.tech
-        //SPIが反応しない場合にIICにつなぐ
+        &detector_Guition_JC2432W328R,  //0x04 0xFFFF 0xb38100 ST7789[SPI:12,13,14,15]+XPT2046[SPI:12,13,14,33] TESTED 2025/9/30 tac-lab.tech
         &detector_Guition_JC2432W328C,  //0x04 0xFFFF 0xb38100 ST7789[SPI:12,13,14,15]+CST816S[IIC:33,32,25]    TESTED 2025/9/30 tac-lab.tech
 #endif
 #if defined ( LGFX_AUTODETECT ) || defined ( LGFX_ODROID_GO )
