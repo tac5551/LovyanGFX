@@ -1028,9 +1028,11 @@ namespace lgfx
       uint32_t nvs_handle = 0;
       if (0 == nvs_open(LIBRARY_NAME, NVS_READONLY, &nvs_handle))
       {
+#ifndef LGFX_FORCE_DETECT
         nvs_get_u32(nvs_handle, NVS_KEY, static_cast<uint32_t*>(&nvs_board));
         nvs_close(nvs_handle);
         ESP_LOGI(LIBRARY_NAME, "[Autodetect] load from NVS : board:%d", (int)nvs_board);
+#endif
       }
 
 #if defined ( LGFX_DEFAULT_BOARD )
@@ -1047,7 +1049,7 @@ namespace lgfx
       {
         if (retry == 1) use_reset = true;
         board = autodetect(use_reset, board);
-        //ESP_LOGI(LIBRARY_NAME,"autodetect board:%d", board);
+        ESP_LOGI(LIBRARY_NAME,"autodetect board:%d", board);
       } while (board_t::board_unknown == board && --retry >= 0);
       _board = board;
       /// autodetectの際にreset済みなのでここではuse_resetをfalseで呼び出す。
@@ -3487,17 +3489,12 @@ namespace lgfx
           _pin_backup_t backup[] = { GPIO_NUM_33, GPIO_NUM_32 };
           lgfx::i2c::init(I2C_NUM_1, GPIO_NUM_33, GPIO_NUM_32);
 
-
-
-
-          auto res = lgfx::i2c::readRegister16(I2C_NUM_1, 0x5D, 0x804A, 400000);
-          if (res.has_value())
-          {
-            ESP_LOGI(LIBRARY_NAME, "readRegister16 success value=0x%02X", res.value());
-          }
-          else
-          {
-            ESP_LOGI(LIBRARY_NAME, "readRegister16 failed");
+          auto res = lgfx::i2c::readRegister16(I2C_NUM_1, 0x5D, 0x8140, 400000);
+          ESP_LOGI(LIBRARY_NAME, "readRegister16 success value=0x%02X", res.value());
+         // I2C通信でタッチパネルコントローラが存在するかチェックする
+          if ( res.has_value() && res.value() == 0x39 )
+          { /// Touch_GT911 Panel ID reg=0x804A  value=0x39
+            return true;
           }
  
           lgfx::i2c::release(I2C_NUM_1);
@@ -3505,11 +3502,7 @@ namespace lgfx
           {
             b.restore();
           }
-         // I2C通信でタッチパネルコントローラが存在するかチェックする
-          if ( res.has_value() && res.value() == 0xE0 )
-          { /// CST816S Panel ID reg=0xA7  value=0xB7
-            return true;
-          }
+
           return false;
         }
 

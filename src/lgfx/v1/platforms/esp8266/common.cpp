@@ -471,6 +471,16 @@ namespace lgfx
       return cpp::fail( res.error() );
     }
 
+    cpp::result<uint8_t, error_t> readRegister16(int i2c_port, int addr, uint16_t reg, uint32_t freq)
+    {
+      // 16bitレジスタアドレスを上位バイトから送る
+      uint8_t regbuf[2] = { static_cast<uint8_t>(reg >> 8), static_cast<uint8_t>(reg & 0xFF) };
+      uint8_t data = 0;
+      auto res = transactionWriteRead(i2c_port, addr, regbuf, 2, &data, 1, freq);
+      if (res.has_value()) { return data; }
+      return cpp::fail(res.error());
+    }
+
     cpp::result<void, error_t> writeRegister8(int i2c_port, int addr, uint8_t reg, uint8_t data, uint8_t mask, uint32_t freq)
     {
       uint8_t tmp[2] = { reg, data };
