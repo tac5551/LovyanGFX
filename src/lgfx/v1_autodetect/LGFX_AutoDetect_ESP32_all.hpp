@@ -770,10 +770,15 @@ namespace lgfx
       {
         bool hit = true;
         if (id_mask) {
-          hit = (id_value == (_read_panel_id(bus, pin_cs, id_cmd) & id_mask));
+          uint32_t panel_id = _read_panel_id(bus, pin_cs, id_cmd);
+          ESP_LOGI(LIBRARY_NAME, "[Autodetect] _read_panel_id(bus, pin_cs:%d, id_cmd:0x%02x) : 0x%08x = : 0x%08x", pin_cs, id_cmd, panel_id ,id_value);
+          hit = (id_value == (panel_id & id_mask));
+
           if (hit && id_value == 0 && id_cmd == 0x04)
           {
-            hit = (0 != (_read_panel_id(bus, pin_cs, 0x09) & 0xFFFFFF));
+            uint32_t panel_id2 = _read_panel_id(bus, pin_cs, 0x09);
+            ESP_LOGI(LIBRARY_NAME, "[Autodetect] _read_panel_id(bus, pin_cs:%d, id_cmd:0x09) : 0x%08x : : 0x%08x", pin_cs, panel_id2 ,id_value);
+            hit = (0 != (panel_id2 & 0xFFFFFF));
           }
         }
         return hit;
@@ -1023,9 +1028,11 @@ namespace lgfx
       uint32_t nvs_handle = 0;
       if (0 == nvs_open(LIBRARY_NAME, NVS_READONLY, &nvs_handle))
       {
+#ifndef LGFX_FORCE_DETECT
         nvs_get_u32(nvs_handle, NVS_KEY, static_cast<uint32_t*>(&nvs_board));
         nvs_close(nvs_handle);
         ESP_LOGI(LIBRARY_NAME, "[Autodetect] load from NVS : board:%d", (int)nvs_board);
+#endif
       }
 
 #if defined ( LGFX_DEFAULT_BOARD )
@@ -1042,7 +1049,7 @@ namespace lgfx
       {
         if (retry == 1) use_reset = true;
         board = autodetect(use_reset, board);
-        //ESP_LOGI(LIBRARY_NAME,"autodetect board:%d", board);
+        ESP_LOGI(LIBRARY_NAME,"autodetect board:%d", board);
       } while (board_t::board_unknown == board && --retry >= 0);
       _board = board;
       /// autodetectの際にreset済みなのでここではuse_resetをfalseで呼び出す。
@@ -3138,9 +3145,17 @@ namespace lgfx
         , HSPI_HOST       // SPI HOST
         } {}
 
+        bool judgement(IBus *bus, int pin_cs_) const override
+        {
+          ESP_LOGI(LIBRARY_NAME, "================================================================");
+          ESP_LOGI(LIBRARY_NAME, "[judgement] Sunton_2432S028 (ILI9341 SPI:12,13,14,15)");
+          auto ret = _detector_t::judgement(bus, pin_cs_);
+          return ret;
+        }
+
         void setup(_detector_result_t* result) const override
         {
-          ESP_LOGI(LIBRARY_NAME, "[Autodetect] Sunton_2432S028 (ILI9341)");
+          ESP_LOGI(LIBRARY_NAME, "[Autodetect] Sunton_2432S028 (ILI9341 SPI:12,13,14,15 + XPT2046 SPI:25,32,39,33)");
 
           auto p = new Panel_ILI9341();
           result->panel = p;
@@ -3158,7 +3173,7 @@ namespace lgfx
         constexpr _detector_Sunton_2432S028_7789_t(void)
         : _detector_Sunton_ESP32_2432S028_t
         { board_t::board_Sunton_ESP32_2432S028_7789
-        , 0x04, 0xFF, 0x85 // ST7789
+        , 0x04, 0xFFFFFF, 0xb38181 // ST7789
         , 80000000, 16000000
         , GPIO_NUM_13     // MOSI
         , GPIO_NUM_12     // MISO
@@ -3172,9 +3187,17 @@ namespace lgfx
         , HSPI_HOST       // SPI HOST
         } {}
 
+        bool judgement(IBus *bus, int pin_cs_) const override
+        {
+          ESP_LOGI(LIBRARY_NAME, "================================================================");
+          ESP_LOGI(LIBRARY_NAME, "[Autodetect] Sunton_2432S028 TypeC Ver (ST7789 SPI:12,13,14,15)");
+          auto ret = _detector_t::judgement(bus, pin_cs_);
+          return ret;
+        }
+
         void setup(_detector_result_t* result) const override
         {
-          ESP_LOGI(LIBRARY_NAME, "[Autodetect] Sunton_2432S028 (ST7789)");
+          ESP_LOGI(LIBRARY_NAME, "[Autodetect] Sunton_2432S028 (ST7789 SPI:12,13,14,15 + XPT2046 SPI:25,32,39,33)");
 
           result->panel = new Panel_ST7789();
           _detector_Sunton_ESP32_2432S028_t::setup(result);
@@ -3187,102 +3210,6 @@ namespace lgfx
         }
       };
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////
-      struct _detector_ESP32_ESP32E_t : public _detector_Sunton_ESP32_2432S028_t
-      {
-        constexpr _detector_ESP32_ESP32E_t(void)
-        : _detector_Sunton_ESP32_2432S028_t
-        {board_t::board_ESP32_ESP32E
-        , 0x04, 0xFFFF00, 0xb38100 // ST7789
-        , 40000000, 16000000
-        , GPIO_NUM_13 // MOSI
-        , GPIO_NUM_12 // MISO
-        , GPIO_NUM_14 // SCLK
-        , GPIO_NUM_2 // DC
-        , GPIO_NUM_15 // CS
-        , (gpio_num_t)-1 // RST
-        , (gpio_num_t)-1 // TF CARD CS
-        , 0 // SPI MODE
-        , false // SPI 3wire
-        , HSPI_HOST // SPI HOST
-        } {}
-
-        bool judgement(IBus *bus, int pin_cs_) const override
-        {
-           // Touch_XPT2046の設定を一時的に使用
-          lgfx::Touch_XPT2046 temp_touch;
-          auto cfg = temp_touch.config();
-          cfg.spi_host = HSPI_HOST;
-          cfg.pin_sclk = GPIO_NUM_25;
-          cfg.pin_mosi = GPIO_NUM_32;
-          cfg.pin_miso = GPIO_NUM_39;
-          cfg.pin_cs = GPIO_NUM_33;
-          cfg.freq = 2500000;
-          temp_touch.config(cfg);
-
-
-          SPI.begin(cfg.pin_sclk, cfg.pin_miso, cfg.pin_mosi, cfg.pin_cs); // SCLK, MISO, MOSI, CS
-          SPI.beginTransaction(SPISettings(cfg.freq, MSBFIRST, SPI_MODE0));
-      
-          digitalWrite(cfg.pin_cs, LOW);
-          uint8_t cmd = 0xD0; // X座標コマンド
-          SPI.transfer(cmd);
-          uint8_t data[2];
-          data[0] = SPI.transfer(0); // 上位バイト
-          data[1] = SPI.transfer(0xD0); // 下位バイト
-          data[0] = SPI.transfer(0); // 上位バイト
-          data[1] = SPI.transfer(0xD0); // 下位バイト
-          data[0] = SPI.transfer(0); // 上位バイト
-          data[1] = SPI.transfer(0xD0); // 下位バイト
-          data[0] = SPI.transfer(0); // 上位バイト
-          data[1] = SPI.transfer(0xD0); // 下位バイト
-          digitalWrite(cfg.pin_cs, HIGH);
-      
-          SPI.endTransaction();
-          SPI.end(); // SPIリソースを明示的に解放
-      
-          uint16_t x = (data[0] << 5) | (data[1] >> 3);
-          ESP_LOGI(LIBRARY_NAME, "[Autodetect] SPI Touch check (XPT2046[SPI:39,32,25,33]) result: %d", x);
-      
-          return (x != 0xFF && x <= 4095); // XPT2046ならtrue
-        }
-        void setup(_detector_result_t *result) const override
-        {
-          ESP_LOGI(LIBRARY_NAME, "[Autodetect] ESP32_ESP32E (ST7789[SPI:12,13,14,15]+XPT2046[SPI:32,39,25,33])");
-
-          //auto p = new Panel_ILI9341();
-          //auto p = new Panel_ILI9341_2();
-          auto p =  new Panel_ST7789();
-          result->panel = p;
-          {
-            auto cfg = p->config();
-            cfg.offset_rotation = 0;
-            cfg.invert = false;
-            p->config(cfg);
-            p->light(_create_pwm_backlight(GPIO_NUM_21, 7));
-          }
-          {
-            auto t = new lgfx::Touch_XPT2046();
-            auto cfg = t->config();
-            cfg.x_min = 300;
-            cfg.x_max = 3900;
-            cfg.y_min = 3700;
-            cfg.y_max = 200;
-            cfg.pin_int = -1;
-            cfg.bus_shared = false;
-            cfg.spi_host = -1; // -1:use software SPI for XPT2046
-            cfg.pin_sclk = GPIO_NUM_25;
-            cfg.pin_mosi = GPIO_NUM_32;
-            cfg.pin_miso = GPIO_NUM_39;
-            cfg.pin_cs = GPIO_NUM_33;
-            cfg.offset_rotation = 2;
-            t->config(cfg);
-            p->touch(t);
-          }
-
-          //_detector_Sunton_ESP32_2432S028_t::setup(result);
-        }
-      };
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
       struct _detector_Guition_JC2432W328R_t : public _detector_Sunton_ESP32_2432S028_t
@@ -3306,6 +3233,10 @@ namespace lgfx
 
         bool judgement(IBus *bus, int pin_cs_) const override
         {
+          ESP_LOGI(LIBRARY_NAME, "================================================================");
+          auto ret = _detector_t::judgement(bus, pin_cs_);
+          if(!ret) return false;
+
           // Touch_XPT2046の設定を一時的に使用
           lgfx::Touch_XPT2046 temp_touch;
           auto cfg = temp_touch.config();
@@ -3397,6 +3328,36 @@ namespace lgfx
         , HSPI_HOST       // SPI HOST
         } {}
 
+        bool judgement(IBus* bus, int pin_cs_) const override
+        {
+          ESP_LOGI(LIBRARY_NAME, "================================================================");
+          ESP_LOGI(LIBRARY_NAME, "[judgement] Guition_JC2432W328C (ST7789 SPI:12,13,14,15)");
+          auto ret = _detector_t::judgement(bus, pin_cs_);
+          if(!ret) return false;
+
+          ESP_LOGI(LIBRARY_NAME, "[Autodetect] JC2432W328C IIC Touch Check (CST816S[IIC:33,32,25])");
+          // タッチパネルの有無をチェックする;
+          _pin_backup_t backup[] = { GPIO_NUM_33, GPIO_NUM_32 };
+          lgfx::i2c::init(I2C_NUM_1, GPIO_NUM_33, GPIO_NUM_32);
+
+          auto res = lgfx::i2c::readRegister8(I2C_NUM_1, 0x15, 0xA7, 400000);
+          ESP_LOGI(LIBRARY_NAME, "readRegister8 has_value=%d value=0x%02X", res.has_value(), res.value_or(0));
+ 
+          // I2C通信でタッチパネルコントローラが存在するかチェックする
+          if ( res.has_value() && res.value() == 0xB7)
+          { /// CST816S Panel ID reg=0xA7  value=0xB7
+            return true;
+          }
+
+          lgfx::i2c::release(I2C_NUM_1);
+          for (auto &b : backup)
+          {
+            b.restore();
+          }
+ 
+          return false;
+        }
+
         void setup(_detector_result_t* result) const override
         {
           ESP_LOGI(LIBRARY_NAME, "[Autodetect] Guition_JC2432W328C (ST7789[SPI:12,13,14,15]+CST816S[IIC:33,32,25])");
@@ -3425,6 +3386,182 @@ namespace lgfx
               t->config(cfg);
               p->touch(t);
           }
+        }
+      };
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+      struct _detector_Sunton_3248S035C_t : public _detector_Sunton_ESP32_2432S028_t
+      {
+        constexpr _detector_Sunton_3248S035C_t(void)
+        : _detector_Sunton_ESP32_2432S028_t
+        { board_t::board_Sunton_ESP32_3248S035C
+        , 0x04, 0xFFFF00, 0x000000 // ST7789
+        , 55000000, 20000000
+        , GPIO_NUM_13     // MOSI
+        , GPIO_NUM_12     // MISO
+        , GPIO_NUM_14     // SCLK
+        , GPIO_NUM_2      // DC
+        , GPIO_NUM_15     // CS
+        , (gpio_num_t)-1  // RST
+        , (gpio_num_t)-1  // TF CARD CS
+        , 0               // SPI MODE
+        , false           // SPI 3wire
+        , HSPI_HOST       // SPI HOST
+        } {}
+
+        bool judgement(IBus* bus, int pin_cs_) const override
+        {
+          ESP_LOGI(LIBRARY_NAME, "================================================================");
+          ESP_LOGI(LIBRARY_NAME, "[judgement] Sunton_3248S035C (ST7796 SPI:12,13,14,15)");
+          auto ret = _detector_t::judgement(bus, pin_cs_);
+    
+          ESP_LOGI(LIBRARY_NAME, "[Autodetect] 3248S035C IIC Touch Check (Touch_GT911[IIC:33,32,36])");
+          // タッチパネルの有無をチェックする;
+          _pin_backup_t backup[] = { GPIO_NUM_33, GPIO_NUM_32 };
+          lgfx::i2c::init(I2C_NUM_1, GPIO_NUM_33, GPIO_NUM_32);
+
+          auto res = lgfx::i2c::readRegister16(I2C_NUM_1, 0x5D, 0x8140, 400000);
+           if ( res.has_value()){ESP_LOGI(LIBRARY_NAME, "readRegister16 success value=0x%02X", res.value());}
+         // I2C通信でタッチパネルコントローラが存在するかチェックする
+          if ( res.has_value() && res.value() == 0x39 )
+          { /// Touch_GT911 Panel ID reg=0x804A  value=0x39
+            return true;
+          }
+ 
+          lgfx::i2c::release(I2C_NUM_1);
+          for (auto &b : backup)
+          {
+            b.restore();
+          }
+
+          return false;
+        }
+
+        void setup(_detector_result_t* result) const override
+        {
+          ESP_LOGI(LIBRARY_NAME, "[Autodetect] Sunton_3248S035C (ST7796[SPI:12,13,14,15]+GT911[IIC:33,32,25])");
+
+          result->panel = new Panel_ST7796();
+          auto p = result->panel;
+          {
+            auto cfg = p->config();
+            cfg.bus_shared = true;
+            p->config(cfg);
+
+            p->light(_create_pwm_backlight(GPIO_NUM_27, 7));
+          }
+          {
+              auto t = new lgfx::Touch_GT911();
+
+              auto cfg = t->config();
+              cfg.i2c_port = I2C_NUM_0;
+              cfg.pin_sda = GPIO_NUM_33;
+              cfg.pin_scl = GPIO_NUM_32;
+              cfg.pin_rst = GPIO_NUM_36;
+              cfg.pin_int = -1;
+              cfg.freq = 400000;
+              cfg.x_max = 320;
+              cfg.y_max = 480;
+              t->config(cfg);
+              p->touch(t);
+          }
+        }
+      };
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+      struct _detector_Sunton_3248S035R_t : public _detector_Sunton_ESP32_2432S028_t
+      {
+        constexpr _detector_Sunton_3248S035R_t(void)
+        : _detector_Sunton_ESP32_2432S028_t
+        {board_t::board_ESP32_ESP32E
+        , 0x04, 0xFFFF00, 0xb38100 // ST7789
+        , 40000000, 16000000
+        , GPIO_NUM_13 // MOSI
+        , GPIO_NUM_12 // MISO
+        , GPIO_NUM_14 // SCLK
+        , GPIO_NUM_2 // DC
+        , GPIO_NUM_15 // CS
+        , (gpio_num_t)-1 // RST
+        , (gpio_num_t)-1 // TF CARD CS
+        , 0 // SPI MODE
+        , false // SPI 3wire
+        , HSPI_HOST // SPI HOST
+        } {}
+
+        bool judgement(IBus *bus, int pin_cs_) const override
+        {
+          ESP_LOGI(LIBRARY_NAME, "================================================================");
+          auto ret = _detector_t::judgement(bus, pin_cs_);
+
+           // Touch_XPT2046の設定を一時的に使用
+          lgfx::Touch_XPT2046 temp_touch;
+          auto cfg = temp_touch.config();
+          cfg.spi_host = HSPI_HOST;
+          cfg.pin_sclk = GPIO_NUM_25;
+          cfg.pin_mosi = GPIO_NUM_32;
+          cfg.pin_miso = GPIO_NUM_39;
+          cfg.pin_cs = GPIO_NUM_33;
+          cfg.freq = 2500000;
+          temp_touch.config(cfg);
+
+
+          SPI.begin(cfg.pin_sclk, cfg.pin_miso, cfg.pin_mosi, cfg.pin_cs); // SCLK, MISO, MOSI, CS
+          SPI.beginTransaction(SPISettings(cfg.freq, MSBFIRST, SPI_MODE0));
+      
+          digitalWrite(cfg.pin_cs, LOW);
+          uint8_t cmd = 0xD0; // X座標コマンド
+          SPI.transfer(cmd);
+          uint8_t data[2];
+          data[0] = SPI.transfer(0); // 上位バイト
+          data[1] = SPI.transfer(0xD0); // 下位バイト
+          data[0] = SPI.transfer(0); // 上位バイト
+          data[1] = SPI.transfer(0xD0); // 下位バイト
+          data[0] = SPI.transfer(0); // 上位バイト
+          data[1] = SPI.transfer(0xD0); // 下位バイト
+          data[0] = SPI.transfer(0); // 上位バイト
+          data[1] = SPI.transfer(0xD0); // 下位バイト
+          digitalWrite(cfg.pin_cs, HIGH);
+      
+          SPI.endTransaction();
+          SPI.end(); // SPIリソースを明示的に解放
+      
+          uint16_t x = (data[0] << 5) | (data[1] >> 3);
+          ESP_LOGI(LIBRARY_NAME, "[Autodetect] SPI Touch check (XPT2046[SPI:39,32,25,33]) result: %d", x);
+      
+          return (x != 0xFF && x <= 4095); // XPT2046ならtrue
+        }
+        void setup(_detector_result_t *result) const override
+        {
+          ESP_LOGI(LIBRARY_NAME, "[Autodetect] Sunton_3248S035R (ST7796[SPI:12,13,14,15]+XPT2046[SPI:32,39,25,33])");
+          result->panel = new Panel_ST7796();
+          auto p = result->panel;
+          {
+            auto cfg = p->config();
+            cfg.invert = false;
+            p->config(cfg);
+
+            p->light(_create_pwm_backlight(GPIO_NUM_27, 7));
+          }
+          {
+            auto t = new lgfx::Touch_XPT2046();
+            auto cfg = t->config();
+            cfg.x_min = 300;
+            cfg.x_max = 3900;
+            cfg.y_min = 3700;
+            cfg.y_max = 200;
+            cfg.pin_int = -1;
+            cfg.bus_shared = false;
+            cfg.spi_host = -1; // -1:use software SPI for XPT2046
+            cfg.pin_sclk = GPIO_NUM_25;
+            cfg.pin_mosi = GPIO_NUM_32;
+            cfg.pin_miso = GPIO_NUM_39;
+            cfg.pin_cs = GPIO_NUM_33;
+            cfg.offset_rotation = 2;
+            t->config(cfg);
+            p->touch(t);
+          }
+
+          //_detector_Sunton_ESP32_2432S028_t::setup(result);
         }
       };
 
@@ -3672,7 +3809,8 @@ namespace lgfx
       static constexpr const _detector_Guition_JC2432W328R_t   detector_Guition_JC2432W328R;
       static constexpr const _detector_Sunton_2432S028_9341_t  detector_Sunton_2432S028_9341;
       static constexpr const _detector_Sunton_2432S028_7789_t  detector_Sunton_2432S028_7789;
-      static constexpr const _detector_ESP32_ESP32E_t     detector_ESP32_ESP32E;
+      static constexpr const _detector_Sunton_3248S035C_t      detector_Sunton_3248S035C;
+      static constexpr const _detector_Sunton_3248S035R_t      detector_Sunton_3248S035R;
       static constexpr const _detector_ODROID_GO_t             detector_ODROID_GO;
       static constexpr const _detector_WT32_SC01_t             detector_WT32_SC01;
 
@@ -3721,15 +3859,17 @@ namespace lgfx
         &detector_ESP_WROVER_KIT_9341,
 #endif
 #if defined ( LGFX_AUTODETECT ) || defined ( LGFX_ESP32_2432S028 ) || defined ( LGFX_SUNTON_ESP32_2432S028 )
-        &detector_Sunton_2432S028_7789, //0x04 0xFF 0x81 ST7789[SPI:12,13,14,15]      +XPT2046[SPI:32,39,25,33] 
-        &detector_Sunton_2432S028_9341, //0x04 0xFF 0x00 ILI9341[SPI:12,13,14,15]     +XPT2046[SPI:32,39,25,33] TESTED 2025/9/30 tac-lab.tech
+        &detector_Sunton_2432S028_7789,  //0x04 0xFF 0x81 ST7789[SPI:12,13,14,15]      +XPT2046[SPI:32,39,25,33] 
+        &detector_Sunton_2432S028_9341,  //0x04 0xFF 0x00 ILI9341[SPI:12,13,14,15]     +XPT2046[SPI:32,39,25,33] TESTED 2025/9/30 tac-lab.tech
 #endif
-//0xb38100 系のLCDドライバ
 #if defined(LGFX_AUTODETECT) || defined(LGFX_ESP32_2432W328) || defined(LGFX_GUITION_ESP32_2432W328)
-        &detector_Guition_JC2432W328R,  //0x04 0xFFFF 0xb38100 ST7789[SPI:12,13,14,15]+XPT2046[SPI:12,13,14,33] TESTED 2025/9/30 tac-lab.tech
-        &detector_ESP32_ESP32E,         //0x04 0xFFFF 0xb38100 ST7789[SPI:12,13,14,15]+XPT2046[SPI:32,39,25,33] TESTED 2025/9/30 tac-lab.tech
-        //SPIが反応しない場合にIICにつなぐ
         &detector_Guition_JC2432W328C,  //0x04 0xFFFF 0xb38100 ST7789[SPI:12,13,14,15]+CST816S[IIC:33,32,25]    TESTED 2025/9/30 tac-lab.tech
+        &detector_Guition_JC2432W328R,  //0x04 0xFFFF 0xb38100 ST7789[SPI:12,13,14,15]+XPT2046[SPI:12,13,14,33] TESTED 2025/9/30 tac-lab.tech
+#endif
+#if defined ( LGFX_AUTODETECT ) || defined ( LGFX_ESP32_3248S035C ) || defined ( LGFX_ESP32_3248S035R )
+        // PANEL ID CANNOT READABLE.
+        &detector_Sunton_3248S035C, //0x04 0xFFFF 0xFFFFFF ST7796[SPI:12,13,14,15]+CST816S[IIC:33,32,36] TESTED 2025/12/8 tac-lab.tech 
+        &detector_Sunton_3248S035R, //0x04 0xFFFF 0xFFFFFF ST7796[SPI:12,13,14,15]+XPT2046[SPI:32,39,25,33] TESTED 2025/9/30 tac-lab.tech
 #endif
 #if defined ( LGFX_AUTODETECT ) || defined ( LGFX_ODROID_GO )
         &detector_ODROID_GO,
@@ -3787,7 +3927,6 @@ namespace lgfx
 #if defined ( LGFX_AUTODETECT ) || defined ( LGFX_ESP32_2432S028 ) || defined ( LGFX_SUNTON_ESP32_2432S028 )
         &detector_Sunton_2432S028_9341,
         &detector_Sunton_2432S028_7789,
-        &detector_ESP32_ESP32E,
 #endif
 
         nullptr // terminator
