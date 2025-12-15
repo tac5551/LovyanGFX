@@ -771,13 +771,13 @@ namespace lgfx
         bool hit = true;
         if (id_mask) {
           uint32_t panel_id = _read_panel_id(bus, pin_cs, id_cmd);
-          ESP_LOGI(LIBRARY_NAME, "[Autodetect] _read_panel_id(bus, pin_cs:%d, id_cmd:0x%02x) : 0x%08x = : 0x%08x", pin_cs, id_cmd, panel_id ,id_value);
+          ESP_LOGI(LIBRARY_NAME, "[Autodetect] _read_panel_id(bus, pin_cs:%d, id_cmd:0x%02x) : 0x%08x (required:0x%08x)", pin_cs, id_cmd, panel_id ,id_value);
           hit = (id_value == (panel_id & id_mask));
 
           if (hit && id_value == 0 && id_cmd == 0x04)
           {
             uint32_t panel_id2 = _read_panel_id(bus, pin_cs, 0x09);
-            ESP_LOGI(LIBRARY_NAME, "[Autodetect] _read_panel_id(bus, pin_cs:%d, id_cmd:0x09) : 0x%08x : : 0x%08x", pin_cs, panel_id2 ,id_value);
+            ESP_LOGI(LIBRARY_NAME, "[Autodetect] _read_panel_id(bus, pin_cs:%d, id_cmd:0x09) : 0x%08x (required:0x%08x)", pin_cs, panel_id2 ,id_value);
             hit = (0 != (panel_id2 & 0xFFFFFF));
           }
         }
@@ -3473,8 +3473,8 @@ namespace lgfx
       {
         constexpr _detector_Sunton_3248S035R_t(void)
         : _detector_Sunton_ESP32_2432S028_t
-        {board_t::board_ESP32_ESP32E
-        , 0x04, 0xFFFF00, 0xb38100 // ST7789
+        {board_t::board_Sunton_ESP32_3248S035R
+        , 0x04, 0xFFFF00, 0x000000 // ST7789
         , 40000000, 16000000
         , GPIO_NUM_13 // MOSI
         , GPIO_NUM_12 // MISO
@@ -3491,17 +3491,18 @@ namespace lgfx
         bool judgement(IBus *bus, int pin_cs_) const override
         {
           ESP_LOGI(LIBRARY_NAME, "================================================================");
+          ESP_LOGI(LIBRARY_NAME, "[judgement] Sunton_3248S035R (ST7796 SPI:12,13,14,15)");
           auto ret = _detector_t::judgement(bus, pin_cs_);
 
            // Touch_XPT2046の設定を一時的に使用
           lgfx::Touch_XPT2046 temp_touch;
           auto cfg = temp_touch.config();
           cfg.spi_host = HSPI_HOST;
-          cfg.pin_sclk = GPIO_NUM_25;
-          cfg.pin_mosi = GPIO_NUM_32;
-          cfg.pin_miso = GPIO_NUM_39;
+          cfg.pin_sclk = GPIO_NUM_14;
+          cfg.pin_mosi = GPIO_NUM_13;
+          cfg.pin_miso = GPIO_NUM_12;
           cfg.pin_cs = GPIO_NUM_33;
-          cfg.freq = 2500000;
+          cfg.freq = 1000000;
           temp_touch.config(cfg);
 
 
@@ -3526,13 +3527,13 @@ namespace lgfx
           SPI.end(); // SPIリソースを明示的に解放
       
           uint16_t x = (data[0] << 5) | (data[1] >> 3);
-          ESP_LOGI(LIBRARY_NAME, "[Autodetect] SPI Touch check (XPT2046[SPI:39,32,25,33]) result: %d", x);
+          ESP_LOGI(LIBRARY_NAME, "[Autodetect] SPI Touch check (XPT2046[SPI:12,13,14,33]) result: %d", x);
       
           return (x != 0xFF && x <= 4095); // XPT2046ならtrue
         }
         void setup(_detector_result_t *result) const override
         {
-          ESP_LOGI(LIBRARY_NAME, "[Autodetect] Sunton_3248S035R (ST7796[SPI:12,13,14,15]+XPT2046[SPI:32,39,25,33])");
+          ESP_LOGI(LIBRARY_NAME, "[Autodetect] Sunton_3248S035R (ST7796[SPI:12,13,14,15]+XPT2046[SPI:12,13,14,33])");
           result->panel = new Panel_ST7796();
           auto p = result->panel;
           {
@@ -3545,23 +3546,22 @@ namespace lgfx
           {
             auto t = new lgfx::Touch_XPT2046();
             auto cfg = t->config();
-            cfg.x_min = 300;
-            cfg.x_max = 3900;
-            cfg.y_min = 3700;
-            cfg.y_max = 200;
-            cfg.pin_int = -1;
-            cfg.bus_shared = false;
-            cfg.spi_host = -1; // -1:use software SPI for XPT2046
-            cfg.pin_sclk = GPIO_NUM_25;
-            cfg.pin_mosi = GPIO_NUM_32;
-            cfg.pin_miso = GPIO_NUM_39;
+            cfg.x_min      = 3875;    // 変更
+            cfg.x_max      =  250;    // 変更
+            cfg.y_min      =  165;    // 変更
+            cfg.y_max      = 3943;    // 変更
+            cfg.pin_int    = -1;      // 変更
+            cfg.bus_shared = true;    // 変更
+            cfg.offset_rotation = 0;  // 変更
+            cfg.spi_host = HSPI_HOST; // -1:use software SPI for XPT2046
+            cfg.freq = 1000000;
+            cfg.pin_mosi = GPIO_NUM_13;
+            cfg.pin_miso = GPIO_NUM_12;
+            cfg.pin_sclk = GPIO_NUM_14;
             cfg.pin_cs = GPIO_NUM_33;
-            cfg.offset_rotation = 2;
             t->config(cfg);
             p->touch(t);
           }
-
-          //_detector_Sunton_ESP32_2432S028_t::setup(result);
         }
       };
 
@@ -3858,18 +3858,21 @@ namespace lgfx
         &detector_ESP_WROVER_KIT_7789,
         &detector_ESP_WROVER_KIT_9341,
 #endif
-#if defined ( LGFX_AUTODETECT ) || defined ( LGFX_ESP32_2432S028 ) || defined ( LGFX_SUNTON_ESP32_2432S028 )
-        &detector_Sunton_2432S028_7789,  //0x04 0xFF 0x81 ST7789[SPI:12,13,14,15]      +XPT2046[SPI:32,39,25,33] 
-        &detector_Sunton_2432S028_9341,  //0x04 0xFF 0x00 ILI9341[SPI:12,13,14,15]     +XPT2046[SPI:32,39,25,33] TESTED 2025/9/30 tac-lab.tech
-#endif
 #if defined(LGFX_AUTODETECT) || defined(LGFX_ESP32_2432W328) || defined(LGFX_GUITION_ESP32_2432W328)
-        &detector_Guition_JC2432W328C,  //0x04 0xFFFF 0xb38100 ST7789[SPI:12,13,14,15]+CST816S[IIC:33,32,25]    TESTED 2025/9/30 tac-lab.tech
-        &detector_Guition_JC2432W328R,  //0x04 0xFFFF 0xb38100 ST7789[SPI:12,13,14,15]+XPT2046[SPI:12,13,14,33] TESTED 2025/9/30 tac-lab.tech
+        &detector_Guition_JC2432W328C,  //0x04 0xFFFF 0xb38100 ST7789[SPI:12,13,14,15]+CST816S[IIC:33,32,25]    TESTED 2025/12/15 tac-lab.tech 
+        &detector_Guition_JC2432W328R,  //0x04 0xFFFF 0xb38100 ST7789[SPI:12,13,14,15]+XPT2046[SPI:12,13,14,33] TESTED 2025/12/15 tac-lab.tech 
 #endif
-#if defined ( LGFX_AUTODETECT ) || defined ( LGFX_ESP32_3248S035C ) || defined ( LGFX_ESP32_3248S035R )
+#if defined ( LGFX_AUTODETECT ) || defined ( LGFX_ESP32_2432S028 ) || defined ( LGFX_SUNTON_ESP32_2432S028 )
+        &detector_Sunton_2432S028_7789,  //0x04 0xFF 0x81 ST7789[SPI:12,13,14,15]      +XPT2046[SPI:32,39,25,33] TESTED 2025/12/15 tac-lab.tech 
+        &detector_Sunton_2432S028_9341,  //0x04 0xFF 0x00 ILI9341[SPI:12,13,14,15]     +XPT2046[SPI:32,39,25,33] TESTED 2025/12/15 tac-lab.tech 
+#endif
+
+// ST7796を使用したタッチパネルの検出は、読み出しはできないのでLGFX_AUTO_DETECTでは機能しないようにしておく。;
+// LGFX_AUTO_DETECTでは機能しないようにしておく。;
+#if defined ( LGFX_ESP32_3248S035C ) || defined ( LGFX_ESP32_3248S035R )
         // PANEL ID CANNOT READABLE.
-        &detector_Sunton_3248S035C, //0x04 0xFFFF 0xFFFFFF ST7796[SPI:12,13,14,15]+CST816S[IIC:33,32,36] TESTED 2025/12/8 tac-lab.tech 
-        &detector_Sunton_3248S035R, //0x04 0xFFFF 0xFFFFFF ST7796[SPI:12,13,14,15]+XPT2046[SPI:32,39,25,33] TESTED 2025/9/30 tac-lab.tech
+        &detector_Sunton_3248S035C, //0x04 0xFFFF 0xFFFFFF ST7796[SPI:12,13,14,15]+CST816S[IIC:33,32,36] TESTED 2025/12/15 tac-lab.tech 
+        &detector_Sunton_3248S035R, //0x04 0xFFFF 0xFFFFFF ST7796[SPI:12,13,14,15]+XPT2046[SPI:32,39,25,33] TESTED 2025/12/15 tac-lab.tech 
 #endif
 #if defined ( LGFX_AUTODETECT ) || defined ( LGFX_ODROID_GO )
         &detector_ODROID_GO,

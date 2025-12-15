@@ -55,8 +55,6 @@ namespace lgfx
     , board_PyGamer
     , board_Sunton_ESP32_2432S028_7789
     , board_Sunton_ESP32_2432S028_9341
-    , board_Sunton_ESP32_3248S035C
-    , board_Sunton_ESP32_3248S035R
     , board_ESP32_2432S028 
     , board_Makerfabs_ESP32_C3_TFT_Touch_SPI
     , board_Makerfabs_ESP32_S3_TFT_Touch_SPI
@@ -69,7 +67,8 @@ namespace lgfx
     , board_ESP32_S3_BOX_V3
     , board_Guition_ESP32_2432W328R
     , board_Guition_ESP32_2432W328C
-    , board_ESP32_ESP32E
+    , board_Sunton_ESP32_3248S035C
+    , board_Sunton_ESP32_3248S035R
     };
   }
   using namespace boards;
